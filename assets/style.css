@@ -1,0 +1,13 @@
+body{font-family:system-ui;line-height:1.6;margin:0;background:#0b0c10;color:#e5e7eb}
+a{color:#93c5fd;text-decoration:none}
+.wrapper{max-width:860px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1,h2,h3{color:#fff;margin:0 0 8px 0}
+.card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:18px;margin:14px 0}
+.meta{font-size:13px;color:#9ca3af}
+.footer{color:#9ca3af;margin-top:28px;font-size:14px}
+.post-title{font-size:32px;margin-bottom:10px}
+.hero{font-size:18px;color:#cbd5e1;margin:10px 0 18px 0}
+.tag{display:inline-block;font-size:12px;background:#374151;color:#e5e7eb;padding:4px 8px;border-radius:999px;margin-right:8px}
+.ad{background:#0f172a;border:1px dashed #334155;border-radius:12px;padding:12px;margin:16px 0;color:#94a3b8}
+.list-item{margin:0 0 12px 0}
