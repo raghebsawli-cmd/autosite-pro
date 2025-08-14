@@ -18,22 +18,199 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install deps
-        run: pip install -r requirements.txt
-
-      - name: Generate site
+      - name: Build static site (no repo files needed)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
-        run: python src/generate_site.py
+        run: |
+          python - << 'PY'
+          import os, json, random, re, datetime, urllib.request
+          from html import escape
+          from pathlib import Path
+
+          KEY = os.environ.get("OPENAI_API_KEY")
+          if not KEY:
+              raise SystemExit("ERROR: OPENAI_API_KEY missing (set it in Repo Settings → Secrets → Actions)")
+
+          # ---- config (edit by changing constants here if ever needed)
+          SITE_NAME = "Insane Facts Hub"
+          # auto-detect base_url from repo
+          owner, repo = os.environ.get("GITHUB_REPOSITORY","user/repo").split("/",1)
+          BASE_URL = f"https://{owner}.github.io/{repo}"
+          POSTS_PER_RUN = 6
+          LANGUAGE_MIX = ["ar","ar","en"]  # bias Arabic
+          MODEL = "gpt-4o-mini"
+
+          SEED_EN = [
+            "Android storage fixes without deleting photos",
+            "Hidden WhatsApp features you should enable",
+            "Battery life myths vs reality (Android)",
+            "How to record screen on Android without apps",
+            "Protect your phone from malicious apps",
+            "Fix blurry videos sent on WhatsApp"
+          ]
+          SEED_AR = [
+            "حلول لمشكلة امتلاء مساحة التخزين في أندرويد بدون حذف الصور",
+            "ميزات واتساب المخفية التي يجب تفعيلها",
+            "خرافات عمر البطارية مقابل الحقيقة في أندرويد",
+            "تسجيل الشاشة على أندرويد بدون تطبيقات",
+            "حماية الهاتف من التطبيقات الضارة",
+            "حل مشكلة تشويش الفيديو عند إرساله عبر واتساب"
+          ]
+
+          def slugify(text):
+              text = re.sub(r"[^\w\s-]", "", text, flags=re.U).strip().lower()
+              text = re.sub(r"[\s_-]+", "-", text, flags=re.U)
+              return text[:80] or "post"
+
+          def today_iso():
+              return datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+          def now_rfc2822():
+              from email.utils import formatdate
+              return formatdate(usegmt=True)
+
+          def approx_read_mins(text):
+              words = len(re.findall(r"\w+", text))
+              return max(1, words//180)
+
+          def api_chat(system, user):
+              payload = {
+                "model": MODEL,
+                "messages": [{"role":"system","content":system},{"role":"user","content":user}],
+                "temperature": 0.7
+              }
+              req = urllib.request.Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Authorization": f"Bearer {KEY}", "Content-Type":"application/json"}
+              )
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  data = json.loads(r.read().decode("utf-8"))
+              return data["choices"][0]["message"]["content"]
+
+          def en_prompt(theme, topic):
+              return f"""You are a careful, factual writer. Create an original, SEO-friendly article (600-800 words) in English.
+Topic: {topic}
+Theme: {theme}
+Structure:
+- A punchy title (max 60 chars)
+- 1-paragraph intro (40-60 words) with a clear hook
+- 6-8 short sections, each with a bold heading and 2-3 sentences
+- One "Myth vs Reality" section if relevant
+- A final "Bottom line" summary (20-40 words)
+Tone: authoritative but accessible. Avoid fluff. Use plain paragraphs and headings prefixed with '## '."""
+          def ar_prompt(theme, topic):
+              return f"""اكتب مقالة أصلية ومناسبة للسيو باللغة العربية (٦٠٠–٨٠٠ كلمة).
+الموضوع: {topic}
+الثيمة: {theme}
+البنية:
+- عنوان جذاب (حتى ٦٠ حرفًا)
+- مقدمة فقرة واحدة (٤٠–٦٠ كلمة) مع خطاف واضح
+- ٦–٨ أقسام قصيرة، لكل منها عنوان بارز وفقرتان قصيرتان
+- قسم "خرافة مقابل حقيقة" إن أمكن
+- خاتمة "الخلاصة" (٢٠–٤٠ كلمة)
+الأسلوب: موثوق وسلس. فقرات عادية وعناوين تبدأ بـ '## '."""
+
+          BASE_EN = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — {site_name}</title><meta name="description" content="{description}"><link rel="canonical" href="{canonical}">
+<style>body{font-family:system-ui;line-height:1.6;margin:0;background:#0b0c10;color:#e5e7eb}a{color:#93c5fd;text-decoration:none}.wrapper{max-width:860px;margin:0 auto;padding:24px}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}h1,h2,h3{color:#fff;margin:0 0 8px 0}.card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:18px;margin:14px 0}.meta{font-size:13px;color:#9ca3af}.footer{color:#9ca3af;margin-top:28px;font-size:14px}.post-title{font-size:32px;margin-bottom:10px}.hero{font-size:18px;color:#cbd5e1;margin:10px 0 18px 0}.tag{display:inline-block;font-size:12px;background:#374151;color:#e5e7eb;padding:4px 8px;border-radius:999px;margin-right:8px}.ad{background:#0f172a;border:1px dashed #334155;border-radius:12px;padding:12px;margin:16px 0;color:#94a3b8}.list-item{margin:0 0 12px 0}</style>
+<script type="application/ld+json">{json_ld}</script></head>
+<body dir="ltr"><div class="wrapper"><header><div><a href="/index_en.html"><h1>{site_name}</h1></a></div>
+<nav class="nav"><a href="/index_en.html">Home</a><a href="/index_ar.html">العربية</a><a href="/rss.xml">RSS</a></nav></header>
+<div class="ad">AD_PLACEHOLDER_TOP</div>{content}<div class="ad">AD_PLACEHOLDER_BOTTOM</div><div class="footer">© {year} {site_name}</div></div></body></html>"""
+          BASE_AR = """<!DOCTYPE html><html lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — {site_name}</title><meta name="description" content="{description}"><link rel="canonical" href="{canonical}">
+<style>body{font-family:system-ui;line-height:1.6;margin:0;background:#0b0c10;color:#e5e7eb}a{color:#93c5fd;text-decoration:none}.wrapper{max-width:860px;margin:0 auto;padding:24px}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}h1,h2,h3{color:#fff;margin:0 0 8px 0}.card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:18px;margin:14px 0}.meta{font-size:13px;color:#9ca3af}.footer{color:#9ca3af;margin-top:28px;font-size:14px}.post-title{font-size:32px;margin-bottom:10px}.hero{font-size:18px;color:#cbd5e1;margin:10px 0 18px 0}.tag{display:inline-block;font-size:12px;background:#374151;color:#e5e7eb;padding:4px 8px;border-radius:999px;margin-right:8px}.ad{background:#0f172a;border:1px dashed #334155;border-radius:12px;padding:12px;margin:16px 0;color:#94a3b8}.list-item{margin:0 0 12px 0}</style>
+<script type="application/ld+json">{json_ld}</script></head>
+<body dir="rtl"><div class="wrapper"><header><div><a href="/index_ar.html"><h1>{site_name}</h1></a></div>
+<nav class="nav"><a href="/index_en.html">English</a><a href="/index_ar.html">الرئيسية</a><a href="/rss.xml">RSS</a></nav></header>
+<div class="ad">AD_PLACEHOLDER_TOP</div>{content}<div class="ad">AD_PLACEHOLDER_BOTTOM</div><div class="footer">© {year} {site_name}</div></div></body></html>"""
+          POST_EN = """<article class="card"><h2 class="post-title">{title}</h2><div class="meta">Published {date} • {read_mins} min read</div><div class="hero">{excerpt}</div>{html_body}<div class="tag">facts</div> <div class="tag">{theme}</div></article><a href="/index_en.html">← Back to home</a>"""
+          POST_AR = """<article class="card"><h2 class="post-title">{title}</h2><div class="meta">نُشر في {date} • {read_mins} دقائق قراءة</div><div class="hero">{excerpt}</div>{html_body}<div class="tag">حقائق</div> <div class="tag">{theme}</div></article><a href="/index_ar.html">← الرجوع إلى الرئيسية</a>"""
+          INDEX_EN = "<h2>Latest Posts</h2><div class='card'><ul>{items}</ul></div>"
+          INDEX_AR = "<h2>أحدث المقالات</h2><div class='card'><ul>{items}</ul></div>"
+
+          def parse_article(raw):
+              lines = [l.strip() for l in raw.splitlines() if l.strip()]
+              title, rest = "", []
+              for ln in lines:
+                  if ln.startswith("## "): rest.append(ln)
+                  elif not title: title = ln
+                  else: rest.append(ln)
+              body = "\n".join(rest)
+              paragraphs = [p for p in body.split("\n") if not p.startswith("##")]
+              excerpt = paragraphs[0] if paragraphs else ""
+              return title[:90], excerpt[:180], body
+
+          def body_to_html(body):
+              html = []
+              for ln in body.splitlines():
+                  if ln.startswith("## "): html.append(f"<h3>{escape(ln[3:].strip())}</h3>")
+                  else: html.append(f"<p>{escape(ln)}</p>")
+              return "\n".join(html)
+
+          Path("site/posts").mkdir(parents=True, exist_ok=True)
+
+          new_posts = []
+          per_lang = max(1, POSTS_PER_RUN // len(LANGUAGE_MIX))
+          for lang in LANGUAGE_MIX:
+              for _ in range(per_lang):
+                  if lang == "en":
+                      topic = random.choice(SEED_EN)
+                      raw = api_chat("You are a careful web writer.", en_prompt("android_whatsapp", topic))
+                  else:
+                      topic = random.choice(SEED_AR)
+                      raw = api_chat("اكتب بأسلوب عربي واضح وموثوق.", ar_prompt("android_whatsapp", topic))
+                  title, excerpt, body = parse_article(raw)
+                  html_body = body_to_html(body)
+                  slug = slugify(f"{title}-{topic}")
+                  outdir = Path("site/posts")/slug
+                  outdir.mkdir(parents=True, exist_ok=True)
+                  canonical = f"{BASE_URL}/posts/{slug}/"
+                  json_ld = json.dumps({
+                    "@context":"https://schema.org","@type":"Article","headline":title,
+                    "datePublished":today_iso(),"dateModified":today_iso(),
+                    "author":{"@type":"Organization","name":SITE_NAME},
+                    "mainEntityOfPage":{"@type":"WebPage","@id":canonical},
+                    "publisher":{"@type":"Organization","name":SITE_NAME}
+                  }, ensure_ascii=False)
+                  page = (BASE_EN if lang=="en" else BASE_AR).format(
+                    title=title, site_name=SITE_NAME, description=excerpt, canonical=canonical,
+                    json_ld=json_ld, content=(POST_EN if lang=="en" else POST_AR).format(
+                      title=title, date=today_iso(), read_mins=approx_read_mins(body),
+                      excerpt=excerpt, html_body=html_body, theme="android"
+                    ),
+                    year=datetime.datetime.utcnow().year
+                  )
+                  (outdir/"index.html").write_text(page, encoding="utf-8")
+                  new_posts.append({"lang":lang,"title":title,"slug":slug,"date":today_iso()})
+
+          # Build indexes
+          en_items = [f'<li class="list-item"><a href="/posts/{p["slug"]}/">{escape(p["title"])}</a> <span class="meta">— {p["date"]}</span></li>' for p in new_posts if p["lang"]=="en"]
+          ar_items = [f'<li class="list-item"><a href="/posts/{p["slug"]}/">{escape(p["title"])}</a> <span class="meta">— {p["date"]}</span></li>' for p in new_posts if p["lang"]=="ar"]
+          def wrap(base, idx, lang_code):
+              canonical = f"{BASE_URL}/index_{lang_code}.html"
+              json_ld = json.dumps({"@context":"https://schema.org","@type":"WebSite","name":SITE_NAME,"url":BASE_URL}, ensure_ascii=False)
+              return base.format(title=SITE_NAME, site_name=SITE_NAME, description=f"{SITE_NAME} – latest posts",
+                                 canonical=canonical, json_ld=json_ld, content=idx, year=datetime.datetime.utcnow().year)
+          Path("site").mkdir(exist_ok=True)
+          (Path("site")/"index_en.html").write_text(wrap(BASE_EN, INDEX_EN.format(items="\n".join(en_items)), "en"), encoding="utf-8")
+          (Path("site")/"index_ar.html").write_text(wrap(BASE_AR, INDEX_AR.format(items="\n".join(ar_items)), "ar"), encoding="utf-8")
+
+          # RSS + sitemap
+          rss_items = []
+          for p in new_posts:
+              url = f"{BASE_URL}/posts/{p['slug']}/"
+              rss_items.append(f"<item><title>{escape(p['title'])}</title><link>{url}</link><pubDate>{now_rfc2822()}</pubDate></item>")
+          rss = f"<?xml version='1.0' encoding='UTF-8'?><rss version='2.0'><channel><title>{SITE_NAME}</title><link>{BASE_URL}</link><description>{SITE_NAME} feed</description><lastBuildDate>{now_rfc2822()}</lastBuildDate>{''.join(rss_items)}</channel></rss>"
+          (Path("site")/"rss.xml").write_text(rss, encoding="utf-8")
+
+          urls = [f"{BASE_URL}/", f"{BASE_URL}/index_en.html", f"{BASE_URL}/index_ar.html", f"{BASE_URL}/rss.xml"] + [f"{BASE_URL}/posts/{p['slug']}/" for p in new_posts]
+          sm = "<?xml version='1.0' encoding='UTF-8'?>\n<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n" + "\n".join([f"  <url><loc>{u}</loc></url>" for u in urls]) + "\n</urlset>"
+          (Path("site")/"sitemap.xml").write_text(sm, encoding="utf-8")
+
+          print(f"OK: generated {len(new_posts)} posts to ./site")
+          PY
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -50,4 +227,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
