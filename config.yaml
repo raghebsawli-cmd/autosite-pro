@@ -1,0 +1,5 @@
+site_name: "Insane Facts Hub"
+base_url: "https://USERNAME.github.io/autosite-pro"  # we'll replace USERNAME after first publish
+posts_per_run: 10
+theme: "insane_facts"
+language_mix: ["en","ar"]
